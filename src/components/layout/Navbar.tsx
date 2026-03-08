@@ -11,6 +11,7 @@ const navLinks = [
   { name: "Body Composition", href: "/body-composition" },
   { name: "Corporate", href: "/corporate" },
   { name: "About Us", href: "/about" },
+  { name: "Dashboard", href: "/dashboard" },
 ];
 
 const Navbar = () => {

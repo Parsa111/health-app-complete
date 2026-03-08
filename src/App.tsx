@@ -11,6 +11,7 @@ import Exercise from "./pages/Exercise";
 import BodyComposition from "./pages/BodyComposition";
 import Nutrition from "./pages/Nutrition";
 import Booking from "./pages/Booking";
+import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 
 import Navbar from "./components/layout/Navbar";
@@ -36,6 +37,7 @@ const App = () => (
               <Route path="/body-composition" element={<BodyComposition />} />
               <Route path="/nutrition" element={<Nutrition />} />
               <Route path="/booking" element={<Booking />} />
+              <Route path="/dashboard" element={<Dashboard />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

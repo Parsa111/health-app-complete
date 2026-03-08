@@ -54,31 +54,103 @@ const CheckoutForm = ({ amount, bookingData, onClear }: {
 
         setIsProcessing(true);
 
-        // Simulation of payment for testing
-        setTimeout(async () => {
-            // Send email via EmailJS
-            try {
-                await emailjs.send(
-                    import.meta.env.VITE_EMAILJS_SERVICE_ID,
-                    import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
-                    {
-                        to_name: bookingData.name,
-                        to_email: bookingData.email,
-                        package_name: bookingData.package,
-                        booking_date: bookingData.date,
-                        booking_time: bookingData.time,
-                        amount: amount
-                    },
-                    import.meta.env.VITE_EMAILJS_PUBLIC_KEY
-                );
-            } catch (error) {
-                console.error("Email failed to send:", error);
+        try {
+            // 1. Create PaymentIntent on the server
+            const response = await fetch("http://localhost:3001/create-payment-intent", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    amount: amount,
+                    bookingData: bookingData,
+                }),
+            });
+
+            const data = await response.json();
+
+            if (data.error) {
+                toast.error(`Error: ${data.error}`);
+                setIsProcessing(false);
+                return;
             }
 
+            // 2. Confirm the payment with Stripe
+            const result = await stripe.confirmCardPayment(data.clientSecret, {
+                payment_method: {
+                    card: elements.getElement(CardElement)!,
+                    billing_details: {
+                        name: bookingData.name,
+                        email: bookingData.email,
+                    },
+                },
+            });
+
+            if (result.error) {
+                toast.error(result.error.message || "Payment failed");
+                setIsProcessing(false);
+            } else {
+                if (result.paymentIntent.status === "succeeded") {
+                    // 3. Confirm booking on the server
+                    try {
+                        await fetch("http://localhost:3001/confirm-booking", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                booking: {
+                                    id: result.paymentIntent.id,
+                                    ...bookingData,
+                                    price: amount.replace('C$', ''),
+                                    status: 'paid',
+                                    timestamp: Date.now()
+                                }
+                            }),
+                        });
+                    } catch (error) {
+                        console.error("Failed to confirm booking on server:", error);
+                    }
+
+                    // 4. Save booking to local dashboard
+                    const newBooking = {
+                        id: result.paymentIntent.id,
+                        ...bookingData,
+                        price: amount.replace('C$', ''),
+                        status: 'paid',
+                        timestamp: Date.now()
+                    };
+                    
+                    const existingBookings = JSON.parse(localStorage.getItem("medically_fit_bookings") || "[]");
+                    localStorage.setItem("medically_fit_bookings", JSON.stringify([...existingBookings, newBooking]));
+
+                    // 5. Send email via EmailJS
+                    try {
+                        await emailjs.send(
+                            import.meta.env.VITE_EMAILJS_SERVICE_ID,
+                            import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+                            {
+                                to_name: bookingData.name,
+                                to_email: bookingData.email,
+                                package_name: bookingData.package,
+                                booking_date: bookingData.date,
+                                booking_time: bookingData.time,
+                                amount: amount
+                            },
+                            import.meta.env.VITE_EMAILJS_PUBLIC_KEY
+                        );
+                        toast.success("Confirmation email sent successfully!");
+                    } catch (error) {
+                        console.error("Email failed to send:", error);
+                        toast.error("Booking confirmed, but failed to send email. Check your EmailJS settings.");
+                    }
+
+                    setIsProcessing(false);
+                    setIsSuccess(true);
+                    toast.success("Payment successful! Your booking is confirmed and visible in your dashboard.");
+                }
+            }
+        } catch (error) {
+            console.error("Payment error:", error);
+            toast.error("An unexpected error occurred during payment.");
             setIsProcessing(false);
-            setIsSuccess(true);
-            toast.success("Payment successful! Your booking is confirmed.");
-        }, 2000);
+        }
     };
 
     if (isSuccess) {
@@ -148,6 +220,8 @@ const Booking = () => {
     const [step, setStep] = useState(1);
     const [date, setDate] = useState<Date | undefined>(new Date());
     const [time, setTime] = useState("");
+    const [bookedSlots, setBookedSlots] = useState<{date: string, time: string}[]>([]);
+    const [isLoadingSlots, setIsLoadingSlots] = useState(true);
     const [formData, setFormData] = useState({
         name: "",
         email: "",
@@ -162,6 +236,20 @@ const Booking = () => {
 
     useEffect(() => {
         window.scrollTo(0, 0);
+        
+        // Fetch booked slots from server
+        const fetchBookedSlots = async () => {
+            try {
+                const response = await fetch("http://localhost:3001/bookings");
+                const data = await response.json();
+                setBookedSlots(data);
+            } catch (error) {
+                console.error("Error fetching slots:", error);
+            } finally {
+                setIsLoadingSlots(false);
+            }
+        };
+        fetchBookedSlots();
     }, [step]);
 
     const nextStep = () => {
@@ -236,20 +324,31 @@ const Booking = () => {
                                         <div className="space-y-6">
                                             <Label className="text-sm font-bold uppercase tracking-widest mb-4 block">Available Times</Label>
                                             <div className="grid grid-cols-2 gap-3">
-                                                {timeSlots.map((t) => (
-                                                    <button
-                                                        key={t}
-                                                        onClick={() => setTime(t)}
-                                                        className={cn(
-                                                            "p-4 rounded-xl border text-sm font-bold transition-all",
-                                                            time === t
-                                                                ? "bg-primary text-primary-foreground border-primary shadow-lg scale-105"
-                                                                : "bg-muted/20 border-border hover:border-primary/50 text-foreground"
-                                                        )}
-                                                    >
-                                                        {t}
-                                                    </button>
-                                                ))}
+                                                {timeSlots.map((t) => {
+                                                    const formattedDate = date ? format(date, "EEEE, MMMM do") : "";
+                                                    const isBooked = bookedSlots.some(b => b.date === formattedDate && b.time === t);
+                                                    
+                                                    return (
+                                                        <button
+                                                            key={t}
+                                                            disabled={isBooked}
+                                                            onClick={() => setTime(t)}
+                                                            className={cn(
+                                                                "p-4 rounded-xl border text-sm font-bold transition-all relative",
+                                                                time === t
+                                                                    ? "bg-primary text-primary-foreground border-primary shadow-lg scale-105"
+                                                                    : isBooked 
+                                                                        ? "bg-muted/50 border-border text-muted-foreground cursor-not-allowed opacity-50"
+                                                                        : "bg-muted/20 border-border hover:border-primary/50 text-foreground"
+                                                            )}
+                                                        >
+                                                            {t}
+                                                            {isBooked && (
+                                                                <span className="absolute inset-0 flex items-center justify-center text-[10px] uppercase bg-background/80 rounded-xl">Booked</span>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
 
                                             {date && time && (

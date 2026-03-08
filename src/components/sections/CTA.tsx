@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
 
 const CTA = () => {
   return (
@@ -52,16 +53,22 @@ const CTA = () => {
                 size="lg"
                 variant="secondary"
                 className="group"
+                asChild
               >
-                Schedule Free Consultation
-                <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                <Link to="/booking">
+                  Schedule Free Consultation
+                  <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </Link>
               </Button>
               <Button
                 size="lg"
                 variant="outline"
                 className="border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10"
+                asChild
               >
-                View All Programs
+                <Link to="/programs">
+                  View All Programs
+                </Link>
               </Button>
             </motion.div>
           </div>
